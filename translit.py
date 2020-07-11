@@ -3,11 +3,14 @@ import re
 with open("in","r") as inf: string = inf.read()
 
 special_words = [("तो", "toh")]
+all_devanagari = ["्","़","ं","ँ"]
 
 class Vowel ():
 	def __init__ (self, string, matra, latin, terminal = None):
+		global all_devanagari
 		self.string = string
 		self.matra = matra
+		all_devanagari += [string, matra]
 		self.latin = latin
 		if terminal is None: self.terminal = self.latin
 		else: self.terminal = terminal
@@ -16,8 +19,10 @@ class Vowel ():
 
 class Consonant ():
 	def __init__ (self, string, latin, asp = None, n="n"):
+		global all_devanagari
 		self.string = string
 		self.asp = asp
+		all_devanagari += [string, asp]
 		self.latin = latin
 		self.n = n
 
@@ -30,6 +35,7 @@ class Syllable ():
 		self.asp = False
 		self.n = False
 		self.caryonn = False
+		self.wordlength = 0
 
 		self.start = False
 		self.terminal = False
@@ -40,25 +46,34 @@ class Syllable ():
 
 	def get_override (self,cons,vow):
 		if not self.start and self.cons is not None and self.cons.string == "ह" and self.vowel is None:
-			if vow == "": return (None,None,None)
-			return (None,None,"he")
-		if not self.terminal and self.next.cons is not None and self.next.cons.string == "ह" and self.next.vowel is None:
-			return (None, "e", None)
+			if vow != "": return (None,None,"he")
 		if not self.start and self.cons is not None and self.cons.string == "ह" and self.vowel is not None and self.vowel.string == "उ":
 			return (None, None, "ho")
-		if not self.terminal and self.next.cons is not None and self.next.cons.string == "ह" and self.next.vowel is not None and self.next.vowel == "उ":
-			return (None, "o", None)
-		if self.terminal and self.n and self.vowel is not None and self.vowel.string == "ए":
-			return (None, "ein", None)
 
-		return (None, None, None)
+		cons_override = None
+		vowel_override = None
+		if cons == "v" and not self.start and (self.previous.halant or not self.terminal and (vow == "a" or vow == "aa")):
+			cons_override = "w"
+		if not self.terminal and self.next.cons is not None and self.next.cons.string == "ह" and self.next.vowel is None:
+			vowel_override = "e"
+		if not self.terminal and self.next.cons is not None and self.next.cons.string == "ह" and self.next.vowel is not None and self.next.vowel == "उ":
+			vowel_override = "o"
+		if self.terminal and self.n and self.vowel is not None and self.vowel.string == "ए":
+			vowel_override = "ein"
+
+		return (cons_override, vowel_override, None)
 
 	def __str__ (self):
 		vowelstr = ""
 		cons = ""
 
+		# Schwa Dropping
+		if self.vowel == None and self.terminal or not (self.start or (self.terminal or self.previous.halant) or self.caryonn or self.next.halant or self.next.vowel is None):
+			self.halant = True
+
 		if self.vowel is not None:
-			if self.terminal and not self.n: vowelstr = self.vowel.terminal
+			# Starting आs are "a", their terminal ending, in most cases (when words are longer than two letters)
+			if (self.start and self.cons is None and self.vowel.string == "आ" and self.wordlength > 2) or (self.terminal and not self.n): vowelstr = self.vowel.terminal
 			else: vowelstr = self.vowel.latin
 
 			if self.terminal and self.n: vowelstr += "n"
@@ -67,9 +82,8 @@ class Syllable ():
 				if self.caryonn: vowelstr = "n" + vowelstr
 				return vowelstr
 
-		elif not self.halant and not self.terminal and (self.start or self.terminal or self.previous.halant or self.caryonn  or self.next.halant or self.next.vowel is None):
+		elif not self.halant:
 			vowelstr = "a"
-
 
 		cons = self.cons.latin
 		if self.asp: cons += "h"
@@ -109,31 +123,20 @@ class Word():
 		global vowels, consonants, special_consonants
 
 		def set_previous_and_next (syll_list):
-			firstset, lastset = (False, False)
-			for i in range(0,len(syll_list)-1):
-				#print(i,firstset)
-				if firstset and type(syll_list[i]) == Syllable:
-					syll_list[i].previous = syll_list[i-1]
-				elif type(syll_list[i]) == Syllable:
-					syll_list[i].start = True
-					firstset = True
-
-				if firstset and type(syll_list[i+1]) == Syllable:
-					syll_list[i].next = syll_list[i+1]
-				elif firstset:
-					syll_list[i].terminal = True
-					break
-
-			if not firstset and type(syll_list[-1]) == Syllable: syll_list[-1].start = True
-			if type(syll_list[-1]) == Syllable: syll_list[-1].terminal = True
+			for i in range(1,len(syll_list)):
+				syll_list[i].previous = syll_list[i-1]
+				syll_list[i].wordlength = len(syll_list)
+			for i in range(len(syll_list)-1):
+				syll_list[i].next = syll_list[i+1]
+			syll_list[0].start = True
+			syll_list[0].wordlength = len(syll_list)
+			syll_list[-1].terminal = True
 
 			for i in syll_list:
-				if type(i) == Syllable:
-					if(i.start): print("<", end = "")
-					print (i, end="")
-					if(i.terminal): print (">", end = "")
-					print(" ",end="")
-				else: print(i, end = " ")
+				if(i.start): print("<", end = "")
+				print (i, end="")
+				if(i.terminal): print (">", end = "")
+				print(" ",end="")
 			print("\n")
 
 		i = 0
@@ -214,7 +217,7 @@ consonants = [
 		Consonant("ट","t","ठ"), Consonant("ड","d","ढ"), Consonant("ण","n"),
 		Consonant("त","t","थ"), Consonant("द","d","ध"), Consonant("न","n"),
 		Consonant("प","p","फ","m"), Consonant("ब","b","भ","m"), Consonant("म","m"),
-		Consonant("य","y"), Consonant("र","r"), Consonant("ल","l"), Consonant("व","w"),
+		Consonant("य","y"), Consonant("र","r"), Consonant("ल","l"), Consonant("व","v"),
 		Consonant("श","sh"), Consonant("ष","sh"), Consonant("स","s"), Consonant("ह","h"), 
 		]
 
@@ -223,19 +226,20 @@ special_consonants = [
 		Consonant("ड़","d","ढ़"), Consonant("फ़","f"), Consonant("ज्ञ","gy")
 		]
 
-spliters = ["\n"," ","-"]
-
-stringwords = []
-i = 0
-j = 0
-while j < len(string):
-	if string[j] in spliters and i != j:
-		stringwords.append((string[i:j],string[j]))
-		i = j + 1
-	j += 1
-stringwords.append((string[i:],""))
-
-words = []
 cooked = ""
-for word, spliter in stringwords: cooked += str(Word(word)) + spliter
+tempword = ""
+currentlyrandom = False
+for c in string + " ": # Space forces last tempword to be 'random'
+	if c in all_devanagari and currentlyrandom:
+		cooked += tempword
+		tempword = c
+		currentlyrandom = False
+	elif c in all_devanagari: tempword += c
+	elif c not in all_devanagari and currentlyrandom: tempword += c
+	else:
+		cooked += str(Word(tempword))
+		tempword = c
+		currentlyrandom = True
+
+if len(tempword) > 1: cooked += tempword[:-1] # Drops the space
 with open("out","w") as outf: outf.write(cooked)
